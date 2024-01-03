@@ -466,6 +466,7 @@ typedef DARRAY(struct obs_source_info) obs_source_info_array_t;
 struct obs_core {
 	struct obs_module *first_module;
 	DARRAY(struct obs_module_path) module_paths;
+	DARRAY(char *) safe_modules;
 
 	obs_source_info_array_t source_types;
 	obs_source_info_array_t input_types;
@@ -474,8 +475,6 @@ struct obs_core {
 	DARRAY(struct obs_output_info) output_types;
 	DARRAY(struct obs_encoder_info) encoder_types;
 	DARRAY(struct obs_service_info) service_types;
-	DARRAY(struct obs_modal_ui) modal_ui_callbacks;
-	DARRAY(struct obs_modeless_ui) modeless_ui_callbacks;
 
 	signal_handler_t *signals;
 	proc_handler_t *procs;
@@ -962,6 +961,7 @@ convert_video_format(enum video_format format, enum video_trc trc)
 		case VIDEO_FORMAT_P216:
 		case VIDEO_FORMAT_P416:
 		case VIDEO_FORMAT_V210:
+		case VIDEO_FORMAT_R10L:
 			return GS_RGBA16F;
 		default:
 			return GS_BGRX;
@@ -1098,7 +1098,6 @@ struct obs_output {
 
 	uint32_t starting_drawn_count;
 	uint32_t starting_lagged_count;
-	uint32_t starting_frame_count;
 
 	int total_frames;
 
@@ -1247,11 +1246,9 @@ struct obs_encoder {
 
 	/* if a video encoder is paired with an audio encoder, make it start
 	 * up at the specific timestamp.  if this is the audio encoder,
-	 * wait_for_video makes it wait until it's ready to sync up with
-	 * video */
-	bool wait_for_video;
+	 * it waits until it's ready to sync up with video */
 	bool first_received;
-	struct obs_encoder *paired_encoder;
+	DARRAY(struct obs_encoder *) paired_encoders;
 	int64_t offset_usec;
 	uint64_t first_raw_ts;
 	uint64_t start_ts;

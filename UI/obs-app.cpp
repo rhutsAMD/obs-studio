@@ -31,6 +31,7 @@
 #include <obs-config.h>
 #include <obs.hpp>
 
+#include <QDir>
 #include <QFile>
 #include <QGuiApplication>
 #include <QScreen>
@@ -65,7 +66,7 @@
 #endif
 
 #if defined(_WIN32) || defined(ENABLE_SPARKLE_UPDATER)
-#include <json11.hpp>
+#include "update/models/branches.hpp"
 #endif
 
 #if !defined(_WIN32) && !defined(__APPLE__)
@@ -87,6 +88,10 @@ static string lastCrashLogFile;
 
 bool portable_mode = false;
 bool steam = false;
+bool safe_mode = false;
+bool disable_3p_plugins = false;
+bool unclean_shutdown = false;
+bool disable_shutdown_check = false;
 static bool multi = false;
 static bool log_verbose = false;
 static bool unfiltered_log = false;
@@ -105,6 +110,8 @@ string opt_starting_profile;
 string opt_starting_scene;
 
 bool restart = false;
+bool restart_safe = false;
+QStringList arguments;
 
 QPointer<OBSLogViewer> obsLogViewer;
 
@@ -1266,6 +1273,19 @@ bool OBSApp::InitTheme()
 	defaultPalette = palette();
 	setStyle(new OBSProxyStyle());
 
+	/* Set search paths for custom 'theme:' URI prefix */
+	string searchDir;
+	if (GetDataFilePath("themes", searchDir)) {
+		auto installSearchDir = filesystem::u8path(searchDir);
+		QDir::addSearchPath("theme", absolute(installSearchDir));
+	}
+
+	char userDir[512];
+	if (GetConfigPath(userDir, sizeof(userDir), "obs-studio/themes")) {
+		auto configSearchDir = filesystem::u8path(userDir);
+		QDir::addSearchPath("theme", absolute(configSearchDir));
+	}
+
 	const char *themeName =
 		config_get_string(globalConfig, "General", "CurrentTheme3");
 	if (!themeName)
@@ -1284,28 +1304,31 @@ bool OBSApp::InitTheme()
 void ParseBranchesJson(const std::string &jsonString, vector<UpdateBranch> &out,
 		       std::string &error)
 {
-	json11::Json root;
-	root = json11::Json::parse(jsonString, error);
-	if (!error.empty() || !root.is_array())
-		return;
+	JsonBranches branches;
 
-	for (const json11::Json &item : root.array_items()) {
+	try {
+		nlohmann::json json = nlohmann::json::parse(jsonString);
+		branches = json.get<JsonBranches>();
+	} catch (nlohmann::json::exception &e) {
+		error = e.what();
+		return;
+	}
+
+	for (const JsonBranch &json_branch : branches) {
 #ifdef _WIN32
-		if (!item["windows"].bool_value())
+		if (!json_branch.windows)
 			continue;
 #elif defined(__APPLE__)
-		if (!item["macos"].bool_value())
+		if (!json_branch.macos)
 			continue;
 #endif
 
 		UpdateBranch branch = {
-			QString::fromStdString(item["name"].string_value()),
-			QString::fromStdString(
-				item["display_name"].string_value()),
-			QString::fromStdString(
-				item["description"].string_value()),
-			item["enabled"].bool_value(),
-			item["visible"].bool_value(),
+			QString::fromStdString(json_branch.name),
+			QString::fromStdString(json_branch.display_name),
+			QString::fromStdString(json_branch.description),
+			json_branch.enabled,
+			json_branch.visible,
 		};
 		out.push_back(branch);
 	}
@@ -1403,8 +1426,8 @@ OBSApp::OBSApp(int &argc, char **argv, profiler_name_store_t *store)
 	/* Handle SIGINT properly */
 	socketpair(AF_UNIX, SOCK_STREAM, 0, sigintFd);
 	snInt = new QSocketNotifier(sigintFd[1], QSocketNotifier::Read, this);
-	connect(snInt, SIGNAL(activated(QSocketDescriptor)), this,
-		SLOT(ProcessSigInt()));
+	connect(snInt, &QSocketNotifier::activated, this,
+		&OBSApp::ProcessSigInt);
 #endif
 
 	sleepInhibitor = os_inhibit_sleep_create("OBS Video/audio");
@@ -1715,12 +1738,18 @@ bool OBSApp::OBSInit()
 	     QT_VERSION_STR);
 	blog(LOG_INFO, "Portable mode: %s", portable_mode ? "true" : "false");
 
+	if (safe_mode) {
+		blog(LOG_WARNING, "Safe Mode enabled.");
+	} else if (disable_3p_plugins) {
+		blog(LOG_WARNING, "Third-party plugins disabled.");
+	}
+
 	setQuitOnLastWindowClosed(false);
 
 	mainWindow = new OBSBasic();
 
 	mainWindow->setAttribute(Qt::WA_DeleteOnClose, true);
-	connect(mainWindow, SIGNAL(destroyed()), this, SLOT(quit()));
+	connect(mainWindow, &OBSBasic::destroyed, this, &OBSApp::quit);
 
 	mainWindow->OBSInit();
 
@@ -2429,6 +2458,10 @@ static int run_program(fstream &logFile, int argc, char *argv[])
 			blog(LOG_WARNING, "================================");
 			blog(LOG_WARNING, "User is now running multiple "
 					  "instances of OBS!");
+			/* Clear unclean_shutdown flag as multiple instances
+			 * running from the same config will lead to a
+			 * false-positive detection.*/
+			unclean_shutdown = false;
 		}
 
 		/* --------------------------------------- */
@@ -2452,6 +2485,34 @@ static int run_program(fstream &logFile, int argc, char *argv[])
 
 		if (!created_log)
 			create_log_file(logFile);
+
+		if (unclean_shutdown) {
+			blog(LOG_WARNING,
+			     "[Safe Mode] Unclean shutdown detected!");
+		}
+
+		if (unclean_shutdown && !safe_mode) {
+			QMessageBox mb(QMessageBox::Warning,
+				       QTStr("AutoSafeMode.Title"),
+				       QTStr("AutoSafeMode.Text"));
+			QPushButton *launchSafeButton =
+				mb.addButton(QTStr("AutoSafeMode.LaunchSafe"),
+					     QMessageBox::AcceptRole);
+			QPushButton *launchNormalButton =
+				mb.addButton(QTStr("AutoSafeMode.LaunchNormal"),
+					     QMessageBox::RejectRole);
+			mb.setDefaultButton(launchNormalButton);
+			mb.exec();
+
+			safe_mode = mb.clickedButton() == launchSafeButton;
+			if (safe_mode) {
+				blog(LOG_INFO,
+				     "[Safe Mode] User has launched in Safe Mode.");
+			} else {
+				blog(LOG_WARNING,
+				     "[Safe Mode] User elected to launch normally.");
+			}
+		}
 
 		qInstallMessageHandler([](QtMsgType type,
 					  const QMessageLogContext &,
@@ -2540,9 +2601,15 @@ static int run_program(fstream &logFile, int argc, char *argv[])
 		OBSErrorBox(nullptr, "%s", error);
 	}
 
-	if (restart)
-		QProcess::startDetached(qApp->arguments()[0],
-					qApp->arguments());
+	if (restart || restart_safe) {
+		arguments = qApp->arguments();
+
+		if (restart_safe) {
+			arguments.append("--safe-mode");
+		} else {
+			arguments.removeAll("--safe-mode");
+		}
+	}
 
 	return ret;
 }
@@ -2912,51 +2979,6 @@ static bool update_reconnect(ConfigFile &config)
 	return false;
 }
 
-static void convert_x264_settings(obs_data_t *data)
-{
-	bool use_bufsize = obs_data_get_bool(data, "use_bufsize");
-
-	if (use_bufsize) {
-		int buffer_size = (int)obs_data_get_int(data, "buffer_size");
-		if (buffer_size == 0)
-			obs_data_set_string(data, "rate_control", "CRF");
-	}
-}
-
-static void convert_14_2_encoder_setting(const char *encoder, const char *file)
-{
-	OBSDataAutoRelease data =
-		obs_data_create_from_json_file_safe(file, "bak");
-	obs_data_item_t *cbr_item = obs_data_item_byname(data, "cbr");
-	obs_data_item_t *rc_item = obs_data_item_byname(data, "rate_control");
-	bool modified = false;
-	bool cbr = true;
-
-	if (cbr_item) {
-		cbr = obs_data_item_get_bool(cbr_item);
-		obs_data_item_unset_user_value(cbr_item);
-
-		obs_data_set_string(data, "rate_control", cbr ? "CBR" : "VBR");
-
-		modified = true;
-	}
-
-	if (!rc_item && astrcmpi(encoder, "obs_x264") == 0) {
-		if (!cbr_item)
-			obs_data_set_string(data, "rate_control", "CBR");
-		else if (!cbr)
-			convert_x264_settings(data);
-
-		modified = true;
-	}
-
-	if (modified)
-		obs_data_save_json_safe(data, file, "tmp", "bak");
-
-	obs_data_item_release(&rc_item);
-	obs_data_item_release(&cbr_item);
-}
-
 static void convert_nvenc_h264_presets(obs_data_t *data)
 {
 	const char *preset = obs_data_get_string(data, "preset");
@@ -3194,6 +3216,32 @@ static void upgrade_settings(void)
 	os_closedir(dir);
 }
 
+static void check_safe_mode_sentinel(void)
+{
+#ifndef NDEBUG
+	/* Safe Mode detection is disabled in Debug builds to keep developers
+	 * somewhat sane. */
+	return;
+#else
+	if (disable_shutdown_check)
+		return;
+
+	BPtr sentinelPath = GetConfigPathPtr("obs-studio/safe_mode");
+	if (os_file_exists(sentinelPath)) {
+		unclean_shutdown = true;
+		return;
+	}
+
+	os_quick_write_utf8_file(sentinelPath, nullptr, 0, false);
+#endif
+}
+
+static void delete_safe_mode_sentinel(void)
+{
+	BPtr sentinelPath = GetConfigPathPtr("obs-studio/safe_mode");
+	os_unlink(sentinelPath);
+}
+
 #ifndef _WIN32
 void OBSApp::SigIntSignalHandler(int s)
 {
@@ -3272,6 +3320,7 @@ int main(int argc, char *argv[])
 	for (int i = 1; i < argc; i++) {
 		if (arg_is(argv[i], "--multi", "-m")) {
 			multi = true;
+			disable_shutdown_check = true;
 
 #if ALLOW_PORTABLE_MODE
 		} else if (arg_is(argv[i], "--portable", "-p")) {
@@ -3280,6 +3329,17 @@ int main(int argc, char *argv[])
 #endif
 		} else if (arg_is(argv[i], "--verbose", nullptr)) {
 			log_verbose = true;
+
+		} else if (arg_is(argv[i], "--safe-mode", nullptr)) {
+			safe_mode = true;
+
+		} else if (arg_is(argv[i], "--only-bundled-plugins", nullptr)) {
+			disable_3p_plugins = true;
+
+		} else if (arg_is(argv[i], "--disable-shutdown-check",
+				  nullptr)) {
+			/* This exists mostly to bypass the dialog during development. */
+			disable_shutdown_check = true;
 
 		} else if (arg_is(argv[i], "--always-on-top", nullptr)) {
 			opt_always_on_top = true;
@@ -3347,6 +3407,9 @@ int main(int argc, char *argv[])
 				"--portable, -p: Use portable mode.\n"
 #endif
 				"--multi, -m: Don't warn when launching multiple instances.\n\n"
+				"--safe-mode: Run in Safe Mode (disables third-party plugins, scripting, and WebSockets).\n"
+				"--only-bundled-plugins: Only load included (first-party) plugins\n"
+				"--disable-shutdown-check: Disable unclean shutdown detection.\n"
 				"--verbose: Make log more verbose.\n"
 				"--always-on-top: Start in 'always on top' mode.\n\n"
 				"--unfiltered_log: Make log unfiltered.\n\n"
@@ -3393,6 +3456,7 @@ int main(int argc, char *argv[])
 	}
 #endif
 
+	check_safe_mode_sentinel();
 	upgrade_settings();
 
 	fstream logFile;
@@ -3412,7 +3476,14 @@ int main(int argc, char *argv[])
 	log_blocked_dlls();
 #endif
 
+	delete_safe_mode_sentinel();
 	blog(LOG_INFO, "Number of memory leaks: %ld", bnum_allocs());
 	base_set_log_handler(nullptr, nullptr);
+
+	if (restart || restart_safe) {
+		auto executable = arguments.takeFirst();
+		QProcess::startDetached(executable, arguments);
+	}
+
 	return ret;
 }

@@ -2162,21 +2162,17 @@
                        <item row="7" column="1">
                         <widget class="QLineEdit" name="simpleOutMuxCustom"/>
                        </item>
-                       <item row="8" column="1">
-                        <widget class="QCheckBox" name="simpleReplayBuf">
-                         <property name="text">
-                          <string>Basic.Settings.Output.UseReplayBuffer</string>
-                         </property>
-                         <property name="checked">
-                          <bool>true</bool>
-                         </property>
-                        </widget>
-                       </item>
                       </layout>
                      </widget>
                     </item>
                     <item>
-                     <widget class="QGroupBox" name="replayBufferGroupBox">
+                     <widget class="QGroupBox" name="simpleReplayBuf">
+                      <property name="checkable">
+                       <bool>true</bool>
+                      </property>
+                      <property name="checked">
+                       <bool>true</bool>
+                      </property>
                       <property name="title">
                        <string>ReplayBuffer</string>
                       </property>
@@ -2256,22 +2252,6 @@
                      </widget>
                     </item>
                     <item>
-                     <layout class="QVBoxLayout" name="simpleOutInfoLayout">
-                      <property name="leftMargin">
-                       <number>10</number>
-                      </property>
-                      <property name="topMargin">
-                       <number>10</number>
-                      </property>
-                      <property name="rightMargin">
-                       <number>10</number>
-                      </property>
-                      <property name="bottomMargin">
-                       <number>10</number>
-                      </property>
-                     </layout>
-                    </item>
-                    <item>
                      <widget class="QFrame" name="simpleOutputContainer">
                       <property name="minimumSize">
                        <size>
@@ -2311,6 +2291,22 @@
                    </layout>
                   </widget>
                  </widget>
+                </item>
+                <item>
+                 <layout class="QVBoxLayout" name="simpleOutInfoLayout">
+                  <property name="leftMargin">
+                   <number>10</number>
+                  </property>
+                  <property name="topMargin">
+                   <number>10</number>
+                  </property>
+                  <property name="rightMargin">
+                   <number>10</number>
+                  </property>
+                  <property name="bottomMargin">
+                   <number>10</number>
+                  </property>
+                 </layout>
                 </item>
                </layout>
               </widget>
@@ -7563,6 +7559,19 @@
                     </widget>
                    </item>
                    <item row="1" column="0">
+                    <widget class="QLabel" name="ipFamilyLabel">
+                     <property name="text">
+                      <string>Basic.Settings.Advanced.Network.IPFamily</string>
+                     </property>
+                     <property name="buddy">
+                      <cstring>ipFamily</cstring>
+                     </property>
+                    </widget>
+                   </item>
+                   <item row="1" column="1">
+                    <widget class="QComboBox" name="ipFamily"/>
+                   </item>
+                   <item row="2" column="0">
                     <widget class="QLabel" name="bindToIPLabel">
                      <property name="text">
                       <string>Basic.Settings.Advanced.Network.BindToIP</string>
@@ -7572,17 +7581,17 @@
                      </property>
                     </widget>
                    </item>
-                   <item row="1" column="1">
+                   <item row="2" column="1">
                     <widget class="QComboBox" name="bindToIP"/>
                    </item>
-                   <item row="3" column="1">
+                   <item row="4" column="1">
                     <widget class="QCheckBox" name="enableNewSocketLoop">
                      <property name="text">
                       <string>Basic.Settings.Advanced.Network.EnableNewSocketLoop</string>
                      </property>
                     </widget>
                    </item>
-                   <item row="4" column="1">
+                   <item row="5" column="1">
                     <widget class="QCheckBox" name="enableLowLatencyMode">
                      <property name="enabled">
                       <bool>false</bool>
@@ -7592,7 +7601,7 @@
                      </property>
                     </widget>
                    </item>
-                   <item row="3" column="0">
+                   <item row="4" column="0">
                     <spacer name="horizontalSpacer_7">
                      <property name="orientation">
                       <enum>Qt::Horizontal</enum>
@@ -7605,7 +7614,7 @@
                      </property>
                     </spacer>
                    </item>
-                   <item row="2" column="1">
+                   <item row="3" column="1">
                     <widget class="QCheckBox" name="dynBitrate">
                      <property name="toolTip">
                       <string>Basic.Settings.Output.DynamicBitrate.TT</string>

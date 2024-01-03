@@ -201,8 +201,10 @@ obs_output_t *obs_output_create(const char *id, const char *name,
 	} else {
 		output->info = *info;
 	}
-	output->video = obs_get_video();
-	output->audio = obs_get_audio();
+	if (!flag_encoded(output)) {
+		output->video = obs_get_video();
+		output->audio = obs_get_audio();
+	}
 	if (output->info.get_defaults)
 		output->info.get_defaults(output->context.settings);
 
@@ -328,9 +330,7 @@ bool obs_output_actual_start(obs_output_t *output)
 	if (output->context.data)
 		success = output->info.start(output->context.data);
 
-	if (success && output->video) {
-		output->starting_frame_count =
-			video_output_get_total_frames(output->video);
+	if (success) {
 		output->starting_drawn_count = obs->video.total_frames;
 		output->starting_lagged_count = obs->video.lagged_frames;
 	}
@@ -857,14 +857,30 @@ void obs_output_set_media(obs_output_t *output, video_t *video, audio_t *audio)
 
 video_t *obs_output_video(const obs_output_t *output)
 {
-	return obs_output_valid(output, "obs_output_video") ? output->video
-							    : NULL;
+	if (!obs_output_valid(output, "obs_output_video"))
+		return NULL;
+
+	if (!flag_encoded(output))
+		return output->video;
+
+	obs_encoder_t *vencoder = obs_output_get_video_encoder(output);
+	return obs_encoder_video(vencoder);
 }
 
 audio_t *obs_output_audio(const obs_output_t *output)
 {
-	return obs_output_valid(output, "obs_output_audio") ? output->audio
-							    : NULL;
+	if (!obs_output_valid(output, "obs_output_audio"))
+		return NULL;
+
+	if (!flag_encoded(output))
+		return output->audio;
+
+	for (size_t i = 0; i < MAX_OUTPUT_AUDIO_ENCODERS; i++) {
+		if (output->audio_encoders[i])
+			return obs_encoder_audio(output->audio_encoders[i]);
+	}
+
+	return NULL;
 }
 
 static inline size_t get_first_mixer(const obs_output_t *output)
@@ -1331,6 +1347,10 @@ static inline bool has_scaling(const struct obs_output *output)
 const struct video_scale_info *
 obs_output_get_video_conversion(struct obs_output *output)
 {
+	if (log_flag_encoded(output, __FUNCTION__, true) ||
+	    !log_flag_video(output, __FUNCTION__))
+		return NULL;
+
 	if (output->video_conversion_set) {
 		if (!output->video_conversion.width)
 			output->video_conversion.width =
@@ -2073,6 +2093,11 @@ static void default_raw_video_callback(void *param, struct video_data *frame)
 static bool prepare_audio(struct obs_output *output,
 			  const struct audio_data *old, struct audio_data *new)
 {
+	if ((output->info.flags & OBS_OUTPUT_VIDEO) == 0) {
+		*new = *old;
+		return true;
+	}
+
 	if (!output->video_start_ts) {
 		pthread_mutex_lock(&output->pause.mutex);
 		output->video_start_ts = output->pause.last_video_ts;
@@ -2356,41 +2381,32 @@ static inline bool initialize_video_encoders(obs_output_t *output)
 	return true;
 }
 
-static inline obs_encoder_t *find_inactive_audio_encoder(obs_output_t *output)
-{
-	for (size_t i = 0; i < MAX_OUTPUT_AUDIO_ENCODERS; i++) {
-		struct obs_encoder *audio = output->audio_encoders[i];
-
-		if (audio && !audio->active && !audio->paired_encoder)
-			return audio;
-	}
-
-	return NULL;
-}
-
 static inline void pair_encoders(obs_output_t *output)
 {
 	size_t first_venc_idx;
 	if (!get_first_video_encoder_index(output, &first_venc_idx))
 		return;
 	struct obs_encoder *video = output->video_encoders[first_venc_idx];
-	struct obs_encoder *audio = find_inactive_audio_encoder(output);
 
-	if (video && audio) {
-		pthread_mutex_lock(&audio->init_mutex);
-		pthread_mutex_lock(&video->init_mutex);
-
-		if (!audio->active && !video->active &&
-		    !video->paired_encoder && !audio->paired_encoder) {
-
-			audio->wait_for_video = true;
-			audio->paired_encoder = video;
-			video->paired_encoder = audio;
-		}
-
+	pthread_mutex_lock(&video->init_mutex);
+	if (video->active) {
 		pthread_mutex_unlock(&video->init_mutex);
+		return;
+	}
+
+	for (size_t i = 0; i < MAX_OUTPUT_AUDIO_ENCODERS; i++) {
+		struct obs_encoder *audio = output->audio_encoders[i];
+		if (!audio)
+			continue;
+
+		pthread_mutex_lock(&audio->init_mutex);
+		if (!audio->active && !audio->paired_encoders.num) {
+			da_push_back(video->paired_encoders, &audio);
+			da_push_back(audio->paired_encoders, &video);
+		}
 		pthread_mutex_unlock(&audio->init_mutex);
 	}
+	pthread_mutex_unlock(&video->init_mutex);
 }
 
 bool obs_output_initialize_encoders(obs_output_t *output, uint32_t flags)
@@ -2621,7 +2637,7 @@ static void obs_output_end_data_capture_internal(obs_output_t *output,
 
 	os_atomic_set_bool(&output->data_active, false);
 
-	if (output->video)
+	if (flag_video(output))
 		log_frame_info(output);
 
 	if (data_capture_ending(output))

@@ -18,13 +18,7 @@ class QLineEdit;
 class SourceTree;
 class QSpacerItem;
 class QHBoxLayout;
-class LockedCheckBox;
-class VisibilityCheckBox;
 class VisibilityItemWidget;
-
-class SourceTreeSubItemCheckBox : public QCheckBox {
-	Q_OBJECT
-};
 
 class SourceTreeItem : public QFrame {
 	Q_OBJECT
@@ -60,8 +54,8 @@ private:
 	QSpacerItem *spacer = nullptr;
 	QCheckBox *expand = nullptr;
 	QLabel *iconLabel = nullptr;
-	VisibilityCheckBox *vis = nullptr;
-	LockedCheckBox *lock = nullptr;
+	QCheckBox *vis = nullptr;
+	QCheckBox *lock = nullptr;
 	QHBoxLayout *boxLayout = nullptr;
 	QLabel *label = nullptr;
 

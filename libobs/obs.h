@@ -32,7 +32,6 @@
 #include "obs-config.h"
 #include "obs-defs.h"
 #include "obs-data.h"
-#include "obs-ui.h"
 #include "obs-properties.h"
 #include "obs-interaction.h"
 
@@ -163,6 +162,7 @@ struct obs_transform_info {
 	enum obs_bounds_type bounds_type;
 	uint32_t bounds_alignment;
 	struct vec2 bounds;
+	bool crop_to_bounds;
 };
 
 /**
@@ -517,6 +517,14 @@ EXPORT const char *obs_get_module_data_path(obs_module_t *module);
  */
 EXPORT void obs_add_module_path(const char *bin, const char *data);
 
+/**
+ * Adds a module to the list of modules allowed to load in Safe Mode.
+ * If the list is empty, all modules are allowed.
+ *
+ * @param  name  Specifies the module's name (filename sans extension).
+ */
+EXPORT void obs_add_safe_module(const char *name);
+
 /** Automatically loads all modules from module paths (convenience function) */
 EXPORT void obs_load_all_modules(void);
 
@@ -824,6 +832,8 @@ typedef bool (*obs_enum_audio_device_cb)(void *data, const char *name,
 
 EXPORT bool obs_audio_monitoring_available(void);
 
+EXPORT void obs_reset_audio_monitoring(void);
+
 EXPORT void obs_enum_audio_monitoring_devices(obs_enum_audio_device_cb cb,
 					      void *data);
 
@@ -942,8 +952,14 @@ EXPORT video_t *obs_view_add2(obs_view_t *view, struct obs_video_info *ovi);
 EXPORT void obs_view_remove(obs_view_t *view);
 
 /** Gets the video settings currently in use for this view context, returns false if no video */
-EXPORT bool obs_view_get_video_info(obs_view_t *view,
-				    struct obs_video_info *ovi);
+OBS_DEPRECATED EXPORT bool obs_view_get_video_info(obs_view_t *view,
+						   struct obs_video_info *ovi);
+
+/** Enumerate the video info of all mixes using the specified view context */
+EXPORT void obs_view_enum_video_info(obs_view_t *view,
+				     bool (*enum_proc)(void *,
+						       struct obs_video_info *),
+				     void *param);
 
 /* ------------------------------------------------------------------------- */
 /* Display context */
@@ -1134,8 +1150,8 @@ EXPORT void obs_source_filter_set_order(obs_source_t *source,
 					enum obs_order_movement movement);
 
 /** Gets filter index */
-EXPORT size_t obs_source_filter_get_index(obs_source_t *source,
-					  obs_source_t *filter);
+EXPORT int obs_source_filter_get_index(obs_source_t *source,
+				       obs_source_t *filter);
 
 /** Sets filter index */
 EXPORT void obs_source_filter_set_index(obs_source_t *source,
@@ -1850,6 +1866,7 @@ EXPORT void obs_sceneitem_set_bounds_type(obs_sceneitem_t *item,
 					  enum obs_bounds_type type);
 EXPORT void obs_sceneitem_set_bounds_alignment(obs_sceneitem_t *item,
 					       uint32_t alignment);
+EXPORT void obs_sceneitem_set_bounds_crop(obs_sceneitem_t *item, bool crop);
 EXPORT void obs_sceneitem_set_bounds(obs_sceneitem_t *item,
 				     const struct vec2 *bounds);
 
@@ -1865,6 +1882,7 @@ EXPORT uint32_t obs_sceneitem_get_alignment(const obs_sceneitem_t *item);
 EXPORT enum obs_bounds_type
 obs_sceneitem_get_bounds_type(const obs_sceneitem_t *item);
 EXPORT uint32_t obs_sceneitem_get_bounds_alignment(const obs_sceneitem_t *item);
+EXPORT bool obs_sceneitem_get_bounds_crop(const obs_sceneitem_t *item);
 EXPORT void obs_sceneitem_get_bounds(const obs_sceneitem_t *item,
 				     struct vec2 *bounds);
 

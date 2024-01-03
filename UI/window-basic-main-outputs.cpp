@@ -301,6 +301,8 @@ inline BasicOutputHandler::BasicOutputHandler(OBSBasic *main_) : main(main_)
 	}
 }
 
+extern void log_vcam_changed(const VCamConfig &config, bool starting);
+
 bool BasicOutputHandler::StartVirtualCam()
 {
 	if (!main->vcamEnabled)
@@ -343,6 +345,8 @@ bool BasicOutputHandler::StartVirtualCam()
 
 		DestroyVirtualCamView();
 	}
+
+	log_vcam_changed(main->vcamConfig, true);
 
 	return success;
 }
@@ -822,6 +826,7 @@ void SimpleOutput::Update()
 					   audioSettings);
 
 	if (!enforceBitrate) {
+		blog(LOG_INFO, "User is ignoring service bitrate limits.");
 		obs_data_set_int(videoSettings, "bitrate", videoBitrate);
 		obs_data_set_int(audioSettings, "bitrate", audioBitrate);
 	}
@@ -1014,6 +1019,9 @@ void SimpleOutput::UpdateRecordingSettings()
 		UpdateRecordingSettings_amd_cqp(crf);
 #endif
 
+	} else if (videoEncoder == SIMPLE_ENCODER_AMD_AV1) {
+		UpdateRecordingSettings_amd_cqp(crf);
+
 	} else if (videoEncoder == SIMPLE_ENCODER_NVENC) {
 		UpdateRecordingSettings_nvenc(crf);
 
@@ -1198,6 +1206,8 @@ bool SimpleOutput::StartStreaming(obs_service_t *service)
 		config_get_bool(main->Config(), "Output", "DelayPreserve");
 	const char *bindIP =
 		config_get_string(main->Config(), "Output", "BindIP");
+	const char *ipFamily =
+		config_get_string(main->Config(), "Output", "IPFamily");
 #ifdef _WIN32
 	bool enableNewSocketLoop = config_get_bool(main->Config(), "Output",
 						   "NewSocketLoopEnable");
@@ -1209,6 +1219,7 @@ bool SimpleOutput::StartStreaming(obs_service_t *service)
 
 	OBSDataAutoRelease settings = obs_data_create();
 	obs_data_set_string(settings, "bind_ip", bindIP);
+	obs_data_set_string(settings, "ip_family", ipFamily);
 #ifdef _WIN32
 	obs_data_set_bool(settings, "new_socket_loop_enabled",
 			  enableNewSocketLoop);
@@ -1711,13 +1722,18 @@ void AdvancedOutput::UpdateStreamSettings()
 		int keyint_sec = (int)obs_data_get_int(settings, "keyint_sec");
 		obs_service_apply_encoder_settings(main->GetService(), settings,
 						   nullptr);
-		if (!enforceBitrate)
+		if (!enforceBitrate) {
+			blog(LOG_INFO,
+			     "User is ignoring service bitrate limits.");
 			obs_data_set_int(settings, "bitrate", bitrate);
+		}
 
 		int enforced_keyint_sec =
 			(int)obs_data_get_int(settings, "keyint_sec");
 		if (keyint_sec != 0 && keyint_sec < enforced_keyint_sec)
 			obs_data_set_int(settings, "keyint_sec", keyint_sec);
+	} else {
+		blog(LOG_WARNING, "User is ignoring service settings.");
 	}
 
 	if (dynBitrate && astrcmpi(streamEncoder, "jim_nvenc") == 0)
@@ -2150,6 +2166,8 @@ bool AdvancedOutput::StartStreaming(obs_service_t *service)
 		config_get_bool(main->Config(), "Output", "DelayPreserve");
 	const char *bindIP =
 		config_get_string(main->Config(), "Output", "BindIP");
+	const char *ipFamily =
+		config_get_string(main->Config(), "Output", "IPFamily");
 #ifdef _WIN32
 	bool enableNewSocketLoop = config_get_bool(main->Config(), "Output",
 						   "NewSocketLoopEnable");
@@ -2161,6 +2179,7 @@ bool AdvancedOutput::StartStreaming(obs_service_t *service)
 
 	OBSDataAutoRelease settings = obs_data_create();
 	obs_data_set_string(settings, "bind_ip", bindIP);
+	obs_data_set_string(settings, "ip_family", ipFamily);
 #ifdef _WIN32
 	obs_data_set_bool(settings, "new_socket_loop_enabled",
 			  enableNewSocketLoop);

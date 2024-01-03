@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16...3.25)
+cmake_minimum_required(VERSION 3.22...3.25)
 
 option(ENABLE_PLUGINS "Enable building OBS plugins" ON)
 
@@ -42,9 +42,6 @@ if(OBS_CMAKE_VERSION VERSION_GREATER_EQUAL 3.0.0)
      OR OS_MACOS
      OR OS_LINUX)
     add_subdirectory(decklink)
-  endif()
-  if(OS_WINDOWS)
-    add_subdirectory(enc-amf)
   endif()
   add_subdirectory(image-source)
   if(OS_LINUX)
@@ -121,12 +118,6 @@ if(OS_WINDOWS)
   add_subdirectory(obs-text)
   add_subdirectory(vlc-video)
   add_subdirectory(obs-vst)
-
-  if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/enc-amf/CMakeLists.txt")
-    add_subdirectory(enc-amf)
-  else()
-    obs_status(WARNING "enc-amf plugin not found.")
-  endif()
 
   check_obs_browser()
 elseif(OS_MACOS)

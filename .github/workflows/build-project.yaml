@@ -3,7 +3,7 @@ on:
   workflow_call:
 jobs:
   check-event:
-    name: Check GitHub Event Data 📡
+    name: Event Data 🔎
     runs-on: ubuntu-22.04
     defaults:
       run:
@@ -29,7 +29,7 @@ jobs:
           case "${GITHUB_EVENT_NAME}" in
             pull_request)
               config_data=('codesign:false' 'notarize:false' 'package:false' 'config:RelWithDebInfo')
-              if gh pr view --json labels \
+              if gh pr view ${{ github.event.number }} --json labels \
                 | jq -e -r '.labels[] | select(.name == "Seeking Testers")' > /dev/null; then
                 config_data[0]='codesign:true'
                 config_data[2]='package:true'
@@ -58,7 +58,7 @@ jobs:
           echo "commitHash=${GITHUB_SHA:0:9}" >> $GITHUB_OUTPUT
 
   macos-build:
-    name: Build for macOS 🍏
+    name: macOS 🍏
     runs-on: macos-13
     needs: check-event
     strategy:
@@ -81,7 +81,7 @@ jobs:
           if (( ${+RUNNER_DEBUG} )) setopt XTRACE
 
           print '::group::Enable Xcode 14.3.1 and AppleScript'
-          sudo xcode-select --switch /Applications/Xcode_14.3.1.app/Contents/Developer
+          sudo xcode-select --switch /Applications/Xcode_15.1.app/Contents/Developer
           sudo sqlite3 $HOME/Library/Application\ Support/com.apple.TCC/TCC.db \
             "INSERT OR REPLACE INTO access VALUES('kTCCServiceAppleEvents','/usr/local/opt/runner/provisioner/provisioner',1,2,3,1,NULL,NULL,0,'com.apple.finder',X'fade0c000000002c00000001000000060000000200000010636f6d2e6170706c652e66696e64657200000003',NULL,1592919552);"
           sudo sqlite3 /Library/Application\ Support/com.apple.TCC/TCC.db \
@@ -139,6 +139,7 @@ jobs:
           codesign: ${{ fromJSON(needs.check-event.outputs.codesign) }}
           codesignIdent: ${{ steps.codesign.outputs.codesignIdent }}
           codesignTeam: ${{ steps.codesign.outputs.codesignTeam }}
+          provisioningProfileUUID: ${{ steps.codesign.outputs.provisioningProfileUUID }}
 
       - name: Package OBS Studio 📀
         uses: ./.github/actions/package-obs
@@ -172,7 +173,7 @@ jobs:
           key: ${{ runner.os }}-ccache-${{ matrix.target }}-${{ needs.check-event.outputs.config }}
 
   ubuntu-build:
-    name: Build for Ubuntu 🐧
+    name: Ubuntu 🐧
     runs-on: ubuntu-22.04
     needs: check-event
     defaults:
@@ -241,14 +242,14 @@ jobs:
           key: ${{ runner.os }}-ccache-x86_64-${{ needs.check-event.outputs.config }}
 
   flatpak-build:
-    name: Build Application for Flatpak 📦
+    name: Flatpak 📦
     runs-on: ubuntu-22.04
     needs: check-event
     defaults:
       run:
         shell: bash
     container:
-      image: bilelmoussaoui/flatpak-github-actions:kde-6.4
+      image: bilelmoussaoui/flatpak-github-actions:kde-6.5
       options: --privileged
     steps:
       - uses: actions/checkout@v3
@@ -278,14 +279,22 @@ jobs:
             "$(gh actions-cache list -B ${cache_ref} --key "${cache_key}-x86_64" | head -1)"
 
           if [[ "${key}" ]]; then
-            echo "cacheKey=${cache_key}" >> $GITHUB_OUTPUT
             echo "cacheHit=true" >> $GITHUB_OUTPUT
           else
             echo "cacheHit=false" >> $GITHUB_OUTPUT
           fi
 
+          echo "cacheKey=${cache_key}" >> $GITHUB_OUTPUT
+
+      - name: Validate Flatpak manifest
+        uses: ./.github/actions/flatpak-builder-lint
+        with:
+          artifact: manifest
+          path: build-aux/com.obsproject.Studio.json
+          validateToPublish: false
+
       - name: Build Flatpak Manifest 🧾
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6.1
+        uses: flatpak/flatpak-github-actions/flatpak-builder@0ab9dd6a6afa6fe7e292db0325171660bf5b6fdf
         with:
           build-bundle: ${{ fromJSON(needs.check-event.outputs.package) }}
           bundle: obs-studio-flatpak-${{ needs.check-event.outputs.commitHash }}.flatpak
@@ -294,8 +303,22 @@ jobs:
           restore-cache: ${{ fromJSON(steps.setup.outputs.cacheHit) }}
           cache-key: ${{ steps.setup.outputs.cacheKey }}
 
+      - name: Validate build directory
+        uses: ./.github/actions/flatpak-builder-lint
+        with:
+          artifact: builddir
+          path: flatpak_app
+          validateToPublish: false
+
+      - name: Validate repository
+        uses: ./.github/actions/flatpak-builder-lint
+        with:
+          artifact: repo
+          path: repo
+          validateToPublish: false
+
   windows-build:
-    name: Build for Windows 🪟
+    name: Windows 🪟
     runs-on: windows-2022
     needs: check-event
     defaults:

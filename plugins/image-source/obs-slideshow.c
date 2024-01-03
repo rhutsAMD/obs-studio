@@ -699,8 +699,10 @@ static void *ss_create(obs_data_t *settings, obs_source_t *source)
 		obs_module_text("SlideShow.PreviousSlide"),
 		previous_slide_hotkey, ss);
 
-	proc_handler_add(ph, "int current_index()", current_slide_proc, ss);
-	proc_handler_add(ph, "int total_files()", total_slides_proc, ss);
+	proc_handler_add(ph, "void current_index(out int current_index)",
+			 current_slide_proc, ss);
+	proc_handler_add(ph, "void total_files(out int total_files)",
+			 total_slides_proc, ss);
 
 	signal_handler_t *sh = obs_source_get_signal_handler(ss->source);
 	signal_handler_add(sh, "void slide_changed(int index, string path)");
@@ -736,8 +738,10 @@ static void ss_video_tick(void *data, float seconds)
 {
 	struct slideshow *ss = data;
 
+	pthread_mutex_lock(&ss->mutex);
+
 	if (!ss->transition || !ss->slide_time)
-		return;
+		goto finish;
 
 	if (ss->restart_on_activate && ss->use_cut) {
 		ss->elapsed = 0.0f;
@@ -746,11 +750,11 @@ static void ss_video_tick(void *data, float seconds)
 		ss->restart_on_activate = false;
 		ss->use_cut = false;
 		ss->stop = false;
-		return;
+		goto finish;
 	}
 
 	if (ss->pause_on_deactivate || ss->manual || ss->stop || ss->paused)
-		return;
+		goto finish;
 
 	/* ----------------------------------------------------- */
 	/* fade to transparency when the file list becomes empty */
@@ -777,11 +781,14 @@ static void ss_video_tick(void *data, float seconds)
 			else
 				do_transition(ss, false);
 
-			return;
+			goto finish;
 		}
 
 		obs_source_media_next(ss->source);
 	}
+
+finish:
+	pthread_mutex_unlock(&ss->mutex);
 }
 
 static inline bool ss_audio_render_(obs_source_t *transition, uint64_t *ts_out,
@@ -808,9 +815,7 @@ static inline bool ss_audio_render_(obs_source_t *transition, uint64_t *ts_out,
 			float *out = audio_output->output[mix].data[ch];
 			float *in = child_audio.output[mix].data[ch];
 
-			memcpy(out, in,
-			       AUDIO_OUTPUT_FRAMES * MAX_AUDIO_CHANNELS *
-				       sizeof(float));
+			memcpy(out, in, AUDIO_OUTPUT_FRAMES * sizeof(float));
 		}
 	}
 

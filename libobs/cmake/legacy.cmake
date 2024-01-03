@@ -13,6 +13,7 @@ target_sources(libobs-version PRIVATE obsversion.c obsversion.h)
 target_include_directories(libobs-version PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET libobs-version PROPERTY FOLDER core)
 
+find_package(Jansson 2.5 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(
   FFmpeg REQUIRED
@@ -31,6 +32,8 @@ target_sources(
           obs-audio.c
           obs-audio-controls.c
           obs-audio-controls.h
+          obs-av1.c
+          obs-av1.h
           obs-avc.c
           obs-avc.h
           obs-data.c
@@ -65,7 +68,6 @@ target_sources(
           obs-source.h
           obs-source-deinterlace.c
           obs-source-transition.c
-          obs-ui.h
           obs-video.c
           obs-video-gpu-encode.c
           obs-view.c

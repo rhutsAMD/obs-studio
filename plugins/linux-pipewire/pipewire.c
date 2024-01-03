@@ -522,7 +522,7 @@ static void init_format_info_sync(obs_pipewire_stream *obs_pw_stream)
 
 	enum gs_dmabuf_flags dmabuf_flags;
 	uint32_t *drm_formats = NULL;
-	size_t n_drm_formats;
+	size_t n_drm_formats = 0;
 
 	bool capabilities_queried = gs_query_dmabuf_capabilities(
 		&dmabuf_flags, &drm_formats, &n_drm_formats);
@@ -782,7 +782,6 @@ static void process_video_sync(obs_pipewire_stream *obs_pw_stream)
 	struct format_data format_data;
 	struct spa_buffer *buffer;
 	struct pw_buffer *b;
-	bool swap_red_blue = false;
 	bool has_buffer = true;
 
 	b = find_latest_buffer(obs_pw_stream->stream);
@@ -811,10 +810,10 @@ static void process_video_sync(obs_pipewire_stream *obs_pw_stream)
 
 	if (buffer->datas[0].type == SPA_DATA_DmaBuf) {
 		uint32_t planes = buffer->n_datas;
-		uint32_t offsets[planes];
-		uint32_t strides[planes];
-		uint64_t modifiers[planes];
-		int fds[planes];
+		uint32_t *offsets = alloca(sizeof(uint32_t) * planes);
+		uint32_t *strides = alloca(sizeof(uint32_t) * planes);
+		uint64_t *modifiers = alloca(sizeof(uint64_t) * planes);
+		int *fds = alloca(sizeof(int) * planes);
 		bool use_modifiers;
 		bool corrupt = false;
 
@@ -907,7 +906,7 @@ static void process_video_sync(obs_pipewire_stream *obs_pw_stream)
 			(const uint8_t **)&buffer->datas[0].data, GS_DYNAMIC);
 	}
 
-	if (swap_red_blue)
+	if (format_data.swap_red_blue)
 		swap_texture_red_blue(obs_pw_stream->texture);
 
 	/* Video Crop */
@@ -977,7 +976,7 @@ read_metadata:
 						  format_data.gs_format, 1,
 						  &bitmap_data, GS_DYNAMIC);
 
-			if (swap_red_blue)
+			if (format_data.swap_red_blue)
 				swap_texture_red_blue(
 					obs_pw_stream->cursor.texture);
 		}
@@ -1223,10 +1222,9 @@ void obs_pipewire_destroy(obs_pipewire *obs_pw)
 	bfree(obs_pw);
 }
 
-obs_pipewire_stream *
-obs_pipewire_connect_stream(obs_pipewire *obs_pw, obs_source_t *source,
-			    int pipewire_node, const char *stream_name,
-			    struct pw_properties *stream_properties)
+obs_pipewire_stream *obs_pipewire_connect_stream(
+	obs_pipewire *obs_pw, obs_source_t *source, int pipewire_node,
+	const struct obs_pipwire_connect_stream_info *connect_info)
 {
 	struct spa_pod_builder pod_builder;
 	const struct spa_pod **params = NULL;
@@ -1234,9 +1232,12 @@ obs_pipewire_connect_stream(obs_pipewire *obs_pw, obs_source_t *source,
 	uint32_t n_params;
 	uint8_t params_buffer[4096];
 
+	assert(connect_info != NULL);
+
 	obs_pw_stream = bzalloc(sizeof(obs_pipewire_stream));
 	obs_pw_stream->obs_pw = obs_pw;
 	obs_pw_stream->source = source;
+	obs_pw_stream->cursor.visible = connect_info->screencast.cursor_visible;
 
 	init_format_info(obs_pw_stream);
 
@@ -1245,12 +1246,13 @@ obs_pipewire_connect_stream(obs_pipewire *obs_pw, obs_source_t *source,
 	/* Signal to renegotiate */
 	obs_pw_stream->reneg =
 		pw_loop_add_event(pw_thread_loop_get_loop(obs_pw->thread_loop),
-				  renegotiate_format, obs_pw);
+				  renegotiate_format, obs_pw_stream);
 	blog(LOG_DEBUG, "[pipewire] registered event %p", obs_pw_stream->reneg);
 
 	/* Stream */
-	obs_pw_stream->stream =
-		pw_stream_new(obs_pw->core, stream_name, stream_properties);
+	obs_pw_stream->stream = pw_stream_new(obs_pw->core,
+					      connect_info->stream_name,
+					      connect_info->stream_properties);
 	pw_stream_add_listener(obs_pw_stream->stream,
 			       &obs_pw_stream->stream_listener, &stream_events,
 			       obs_pw_stream);
@@ -1286,14 +1288,20 @@ obs_pipewire_connect_stream(obs_pipewire *obs_pw, obs_source_t *source,
 
 void obs_pipewire_stream_show(obs_pipewire_stream *obs_pw_stream)
 {
-	if (obs_pw_stream->stream)
+	if (obs_pw_stream->stream) {
+		pw_thread_loop_lock(obs_pw_stream->obs_pw->thread_loop);
 		pw_stream_set_active(obs_pw_stream->stream, true);
+		pw_thread_loop_unlock(obs_pw_stream->obs_pw->thread_loop);
+	}
 }
 
 void obs_pipewire_stream_hide(obs_pipewire_stream *obs_pw_stream)
 {
-	if (obs_pw_stream->stream)
+	if (obs_pw_stream->stream) {
+		pw_thread_loop_lock(obs_pw_stream->obs_pw->thread_loop);
 		pw_stream_set_active(obs_pw_stream->stream, false);
+		pw_thread_loop_unlock(obs_pw_stream->obs_pw->thread_loop);
+	}
 }
 
 uint32_t obs_pipewire_stream_get_width(obs_pipewire_stream *obs_pw_stream)
@@ -1433,9 +1441,11 @@ void obs_pipewire_stream_destroy(obs_pipewire_stream *obs_pw_stream)
 	g_clear_pointer(&obs_pw_stream->texture, gs_texture_destroy);
 	obs_leave_graphics();
 
+	pw_thread_loop_lock(obs_pw_stream->obs_pw->thread_loop);
 	if (obs_pw_stream->stream)
 		pw_stream_disconnect(obs_pw_stream->stream);
 	g_clear_pointer(&obs_pw_stream->stream, pw_stream_destroy);
+	pw_thread_loop_unlock(obs_pw_stream->obs_pw->thread_loop);
 
 	clear_format_info(obs_pw_stream);
 	bfree(obs_pw_stream);

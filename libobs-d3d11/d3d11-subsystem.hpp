@@ -38,6 +38,9 @@
 
 // #define DISASSEMBLE_SHADERS
 
+typedef HRESULT(WINAPI *pD3DCreateBlob)(_In_ SIZE_T Size,
+					_Out_ ID3DBlob **ppBlob);
+
 struct shader_var;
 struct shader_sampler;
 struct gs_vertex_shader;
@@ -1019,6 +1022,7 @@ struct gs_device {
 	uint32_t adpIdx = 0;
 	bool nv12Supported = false;
 	bool p010Supported = false;
+	bool fastClearSupported = false;
 
 	gs_texture_2d *curRenderTarget = nullptr;
 	gs_zstencil_buffer *curZStencilBuffer = nullptr;
@@ -1051,11 +1055,6 @@ struct gs_device {
 	ID3D11BlendState *curBlendState = nullptr;
 	D3D11_PRIMITIVE_TOPOLOGY curToplogy;
 
-	pD3DCompile d3dCompile = nullptr;
-#ifdef DISASSEMBLE_SHADERS
-	pD3DDisassemble d3dDisassemble = nullptr;
-#endif
-
 	gs_rect viewport;
 
 	vector<mat4float> projStack;
@@ -1069,7 +1068,6 @@ struct gs_device {
 
 	vector<std::pair<HMONITOR, gs_monitor_color_info>> monitor_to_hdr;
 
-	void InitCompiler();
 	void InitFactory();
 	void InitAdapter(uint32_t adapterIdx);
 	void InitDevice(uint32_t adapterIdx);

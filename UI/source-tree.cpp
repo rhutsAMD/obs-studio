@@ -2,9 +2,6 @@
 #include "obs-app.hpp"
 #include "source-tree.hpp"
 #include "qt-wrappers.hpp"
-#include "visibility-checkbox.hpp"
-#include "locked-checkbox.hpp"
-#include "expand-checkbox.hpp"
 #include "platform.hpp"
 
 #include <obs-frontend-api.h>
@@ -81,7 +78,8 @@ SourceTreeItem::SourceTreeItem(SourceTree *tree_, OBSSceneItem sceneitem_)
 		iconLabel->setStyleSheet("background: none");
 	}
 
-	vis = new VisibilityCheckBox();
+	vis = new QCheckBox();
+	vis->setProperty("visibilityCheckBox", true);
 	vis->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);
 	vis->setChecked(sourceVisible);
 	vis->setStyleSheet("background: none");
@@ -89,7 +87,8 @@ SourceTreeItem::SourceTreeItem(SourceTree *tree_, OBSSceneItem sceneitem_)
 	vis->setAccessibleDescription(
 		QTStr("Basic.Main.Sources.VisibilityDescription").arg(name));
 
-	lock = new LockedCheckBox();
+	lock = new QCheckBox();
+	lock->setProperty("lockCheckBox", true);
 	lock->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);
 	lock->setChecked(obs_sceneitem_locked(sceneitem));
 	lock->setStyleSheet("background: none");
@@ -158,12 +157,12 @@ SourceTreeItem::SourceTreeItem(SourceTree *tree_, OBSSceneItem sceneitem_)
 			std::bind(undo_redo, std::placeholders::_1, id, val),
 			uuid, uuid);
 
-		SignalBlocker sourcesSignalBlocker(this);
+		QSignalBlocker sourcesSignalBlocker(this);
 		obs_sceneitem_set_visible(sceneitem, val);
 	};
 
 	auto setItemLocked = [this](bool checked) {
-		SignalBlocker sourcesSignalBlocker(this);
+		QSignalBlocker sourcesSignalBlocker(this);
 		obs_sceneitem_set_locked(sceneitem, checked);
 	};
 
@@ -448,7 +447,7 @@ void SourceTreeItem::ExitEditModeInternal(bool save)
 	/* ----------------------------------------- */
 	/* rename                                    */
 
-	SignalBlocker sourcesSignalBlocker(this);
+	QSignalBlocker sourcesSignalBlocker(this);
 	std::string prevName(obs_source_get_name(source));
 	std::string scene_uuid =
 		obs_source_get_uuid(main->GetCurrentSceneSource());
@@ -578,7 +577,8 @@ void SourceTreeItem::Update(bool force)
 		boxLayout->insertItem(0, spacer);
 
 	} else if (type == Type::Group) {
-		expand = new SourceTreeSubItemCheckBox();
+		expand = new QCheckBox();
+		expand->setProperty("sourceTreeSubItem", true);
 		expand->setSizePolicy(QSizePolicy::Maximum,
 				      QSizePolicy::Maximum);
 		expand->setMaximumSize(10, 16);
@@ -1485,7 +1485,7 @@ void SourceTree::selectionChanged(const QItemSelection &selected,
 				  const QItemSelection &deselected)
 {
 	{
-		SignalBlocker sourcesSignalBlocker(this);
+		QSignalBlocker sourcesSignalBlocker(this);
 		SourceTreeModel *stm = GetStm();
 
 		QModelIndexList selectedIdxs = selected.indexes();
@@ -1665,11 +1665,8 @@ void SourceTree::AddGroup()
 
 void SourceTree::UpdateNoSourcesMessage()
 {
-	std::string darkPath;
-	GetDataFilePath("themes/Dark/no_sources.svg", darkPath);
-
 	QString file = !App()->IsThemeDark() ? ":res/images/no_sources.svg"
-					     : darkPath.c_str();
+					     : "theme:Dark/no_sources.svg";
 	iconNoSources.load(file);
 
 	QTextOption opt(Qt::AlignHCenter);

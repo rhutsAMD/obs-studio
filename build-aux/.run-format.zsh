@@ -29,29 +29,29 @@ invoke_formatter() {
 
   case ${1} {
     clang)
-      if (( ${+commands[clang-format-13]} )) {
-        local formatter=clang-format-13
+      if (( ${+commands[clang-format-16]} )) {
+        local formatter=clang-format-16
       } elif (( ${+commands[clang-format]} )) {
         local formatter=clang-format
       } else {
-        log_error "No viable clang-format version found (required 13.0.1)"
+        log_error "No viable clang-format version found (required 16.0.5)"
         exit 2
       }
 
       local -a formatter_version=($(${formatter} --version))
 
-      if ! is-at-least 13.0.1 ${formatter_version[-1]}; then
-        log_error "clang-format is not version 13.0.1 or above (found ${formatter_version[-1]}."
+      if ! is-at-least 16.0.5 ${formatter_version[-1]}; then
+        log_error "clang-format is not version 16.0.5 or above (found ${formatter_version[-1]}."
         exit 2
       fi
 
-      if ! is-at-least ${formatter_version[-1]} 13.0.1; then
-        log_error "clang-format is more recent than version 13.0.1 (found ${formatter_version[-1]})."
+      if ! is-at-least ${formatter_version[-1]} 16.0.5; then
+        log_error "clang-format is more recent than version 16.0.5 (found ${formatter_version[-1]})."
         exit 2
       fi
 
-      local -a source_files=((libobs|libobs-*|UI|plugins)/**/*.(c|cpp|h|hpp|m|mm)(.N))
-      source_files=(${source_files:#*/(obs-websocket/deps|decklink/*/decklink-sdk|enc-amf|mac-syphon/syphon-framework|obs-outputs/ftl-sdk)/*})
+      local -a source_files=((libobs|libobs-*|UI|plugins|deps)/**/*.(c|cpp|h|hpp|m|mm)(.N))
+      source_files=(${source_files:#*/(obs-websocket/deps|decklink/*/decklink-sdk|mac-syphon/syphon-framework|obs-outputs/ftl-sdk|win-dshow/libdshowcapture)/*})
 
       local -a format_args=(-style=file -fallback-style=none)
       if (( _loglevel > 2 )) format_args+=(--verbose)
@@ -70,8 +70,8 @@ invoke_formatter() {
         exit 2
       }
 
-      local -a source_files=((libobs|libobs-*|UI|plugins|cmake)/**/(CMakeLists.txt|*.cmake)(.N))
-      source_files=(${source_files:#*/(obs-outputs/ftl-sdk|jansson|decklink/*/decklink-sdk|enc-amf|obs-websocket|obs-browser|win-dshow/libdshowcapture)/*})
+      local -a source_files=((libobs|libobs-*|UI|plugins|deps|cmake)/**/(CMakeLists.txt|*.cmake)(.N))
+      source_files=(${source_files:#*/(obs-outputs/ftl-sdk|jansson|decklink/*/decklink-sdk|obs-websocket|obs-browser|win-dshow/libdshowcapture)/*})
 
       local -a format_args=()
       if (( _loglevel > 2 )) format_args+=(--log-level debug)

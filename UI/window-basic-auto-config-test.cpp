@@ -249,6 +249,10 @@ void AutoConfigTestPage::TestBandwidthThread()
 		config_get_string(main->Config(), "Output", "BindIP");
 	obs_data_set_string(output_settings, "bind_ip", bind_ip);
 
+	const char *ip_family =
+		config_get_string(main->Config(), "Output", "IPFamily");
+	obs_data_set_string(output_settings, "ip_family", ip_family);
+
 	/* -----------------------------------*/
 	/* determine which servers to test    */
 
@@ -949,6 +953,16 @@ void AutoConfigTestPage::TestStreamEncoderThread()
 	} else {
 		wiz->streamingEncoder = AutoConfig::Encoder::x264;
 	}
+
+#ifdef __linux__
+	// On linux CBR rate control is not guaranteed so fallback to x264.
+	if (wiz->streamingEncoder == AutoConfig::Encoder::QSV) {
+		wiz->streamingEncoder = AutoConfig::Encoder::x264;
+		if (!TestSoftwareEncoding()) {
+			return;
+		}
+	}
+#endif
 
 	if (preferHardware && !softwareTested && wiz->hardwareEncodingAvailable)
 		FindIdealHardwareResolution();
